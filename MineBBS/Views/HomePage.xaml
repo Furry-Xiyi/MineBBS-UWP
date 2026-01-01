@@ -1,0 +1,48 @@
+﻿<Page
+    x:Class="MineBBS.Views.HomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    mc:Ignorable="d">
+
+    <Grid>
+        <!-- 加载提示 -->
+        <muxc:ProgressRing 
+            x:Name="LoadingProgressRing"
+            HorizontalAlignment="Center" 
+            VerticalAlignment="Center" 
+            IsActive="True" 
+            Width="60" 
+            Height="60"/>
+
+        <!-- 错误提示 -->
+        <StackPanel
+            x:Name="ErrorPanel"
+            HorizontalAlignment="Center" 
+            VerticalAlignment="Center"
+            Visibility="Collapsed">
+            <TextBlock 
+                Text="❌" 
+                FontSize="48"
+                HorizontalAlignment="Center"
+                Margin="0,0,0,12"/>
+            <TextBlock 
+                x:Name="ErrorTextBlock"
+                Foreground="Red"
+                MaxWidth="600"
+                TextWrapping="Wrap"
+                TextAlignment="Center"/>
+        </StackPanel>
+
+        <!-- 主内容容器 -->
+        <ScrollViewer 
+            x:Name="MainScrollViewer"
+            Visibility="Collapsed">
+            <StackPanel x:Name="ContentPanel" Margin="0,0,0,20">
+                <!-- 所有内容将在代码中动态生成 -->
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>
