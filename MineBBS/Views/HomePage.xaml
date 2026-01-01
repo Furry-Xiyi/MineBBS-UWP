@@ -8,6 +8,24 @@
     NavigationCacheMode="Enabled"
     mc:Ignorable="d">
 
+    <Page.Resources>
+        <!-- 轮播图图片样式 - 图片适应容器 -->
+        <Style x:Key="CarouselImageStyle" TargetType="Image">
+            <Setter Property="Stretch" Value="UniformToFill"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
+        <!-- 卡片样式 -->
+        <Style x:Key="CardStyle" TargetType="Grid">
+            <Setter Property="Background" Value="{ThemeResource SystemControlAcrylicElementBrush}"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="12"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="VerticalAlignment" Value="Top"/>
+        </Style>
+    </Page.Resources>
+
     <Grid>
         <!-- 加载提示 -->
         <muxc:ProgressRing 
@@ -38,12 +56,71 @@
         </StackPanel>
 
         <!-- 主内容容器 -->
-        <ScrollViewer 
-            x:Name="MainScrollViewer"
-            Visibility="Collapsed">
-            <StackPanel x:Name="ContentPanel" Margin="0,0,0,20">
-                <!-- 所有内容将在代码中动态生成 -->
-            </StackPanel>
+        <ScrollViewer x:Name="MainScrollViewer" Visibility="Collapsed">
+            <Grid x:Name="ContentPanel" 
+          Margin="20,0,20,40"
+          HorizontalAlignment="Stretch">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*" MinWidth="400" />
+                    <ColumnDefinition Width="*" MinWidth="300" MaxWidth="500" />
+                </Grid.ColumnDefinitions>
+
+                <!-- 左侧主内容 -->
+                <StackPanel Grid.Column="0" Margin="10,0,10,0">
+                    <!-- 顶部轮播 -->
+                    <Grid x:Name="TopCarouselContainer" HorizontalAlignment="Stretch"/>
+
+                    <!-- 推荐内容 -->
+                    <StackPanel x:Name="FeaturedContentSection" Margin="0,20,0,20">
+                        <Grid Margin="0,0,0,16">
+                            <TextBlock Text="推荐内容" FontSize="24" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <HyperlinkButton x:Name="ViewAllFeaturedButton" Content="浏览所有推荐内容"
+                             HorizontalAlignment="Right"
+                             Click="ViewAllFeaturedButton_Click"/>
+                        </Grid>
+                        <Grid x:Name="FeaturedCarouselContainer"/>
+                        <muxc:ItemsRepeater x:Name="FeaturedCarouselIndicator"
+                            Margin="0,8,0,0"
+                            HorizontalAlignment="Center">
+                            <muxc:ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="x:Int32">
+                                    <Ellipse Width="8" Height="8" Fill="Gray" Margin="4"/>
+                                </DataTemplate>
+                            </muxc:ItemsRepeater.ItemTemplate>
+                            <muxc:ItemsRepeater.Layout>
+                                <muxc:StackLayout Orientation="Horizontal"/>
+                            </muxc:ItemsRepeater.Layout>
+                        </muxc:ItemsRepeater>
+                    </StackPanel>
+
+                    <!-- 论坛板块列表 -->
+                    <StackPanel x:Name="ForumCategoriesSection"/>
+                </StackPanel>
+
+                <!-- 右侧广告列 - 广告会在代码中动态添加到这里 -->
+            </Grid>
         </ScrollViewer>
+
+        <!-- 刷新按钮 -->
+        <Button
+            x:Name="RefreshButton"
+            VerticalAlignment="Bottom"
+            HorizontalAlignment="Right"
+            Margin="20"
+            Click="RefreshButton_Click"
+            Visibility="Collapsed"
+            Style="{ThemeResource AccentButtonStyle}"
+            CornerRadius="24"
+            Padding="16,12">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <SymbolIcon Symbol="Refresh"/>
+                <TextBlock Text="刷新"/>
+            </StackPanel>
+        </Button>
+
+        <!-- 隐藏的WebView2用于获取HTML -->
+        <muxc:WebView2 x:Name="HiddenWebView"
+          Visibility="Collapsed"
+          NavigationCompleted="HiddenWebView_NavigationCompleted"/>
     </Grid>
 </Page>

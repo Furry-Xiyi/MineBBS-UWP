@@ -5,24 +5,79 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    xmlns:animatedvisuals="using:Microsoft.UI.Xaml.Controls.AnimatedVisuals"
     mc:Ignorable="d">
+
+    <Page.Resources>
+        <Style x:Key="AvatarButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid x:Name="Root" 
+                              Width="{TemplateBinding Width}" 
+                              Height="{TemplateBinding Height}" 
+                              RenderTransformOrigin="0.5,0.5">
+                            <Grid.RenderTransform>
+                                <ScaleTransform x:Name="RootScale" ScaleX="1" ScaleY="1" />
+                            </Grid.RenderTransform>
+                            <ContentPresenter Content="{TemplateBinding Content}" 
+                                            HorizontalAlignment="Center" 
+                                            VerticalAlignment="Center" />
+                            <VisualStateManager.VisualStateGroups>
+                                <VisualStateGroup x:Name="CommonStates">
+                                    <VisualState x:Name="Normal" />
+                                    <VisualState x:Name="PointerOver">
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="RootScale" 
+                                                           Storyboard.TargetProperty="ScaleX" 
+                                                           To="1.06" 
+                                                           Duration="0:0:0.1" />
+                                            <DoubleAnimation Storyboard.TargetName="RootScale" 
+                                                           Storyboard.TargetProperty="ScaleY" 
+                                                           To="1.06" 
+                                                           Duration="0:0:0.1" />
+                                        </Storyboard>
+                                    </VisualState>
+                                    <VisualState x:Name="Pressed">
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="RootScale" 
+                                                           Storyboard.TargetProperty="ScaleX" 
+                                                           To="0.96" 
+                                                           Duration="0:0:0.05" />
+                                            <DoubleAnimation Storyboard.TargetName="RootScale" 
+                                                           Storyboard.TargetProperty="ScaleY" 
+                                                           To="0.96" 
+                                                           Duration="0:0:0.05" />
+                                        </Storyboard>
+                                    </VisualState>
+                                    <VisualState x:Name="Disabled"/>
+                                </VisualStateGroup>
+                            </VisualStateManager.VisualStateGroups>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Page.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="48"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <Grid x:Name="AppTitleBar" Height="48">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-
-            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+        <!-- 自定义标题栏 -->
+        <Grid x:Name="AppTitleBar" Height="48" SizeChanged="AppTitleBar_SizeChanged">
+            <!-- Logo和标题 -->
+            <StackPanel Orientation="Horizontal" 
+                VerticalAlignment="Center" 
+                Margin="16,0,0,0"
+                Canvas.ZIndex="1"
+                HorizontalAlignment="Left">
                 <Image Source="ms-appx:///Assets/StoreLogo.png"
-               Width="24" Height="24"
+               Width="16" Height="16"
                Stretch="Uniform"/>
                 <TextBlock Text="MineBBS"
                    VerticalAlignment="Center"
@@ -30,24 +85,223 @@
                    Style="{StaticResource CaptionTextBlockStyle}"/>
             </StackPanel>
 
-            <Grid x:Name="DragRegion" Grid.Column="1" Background="Transparent" />
+            <!-- 拖拽区域 -->
+            <Grid x:Name="DragRegion" 
+          Background="Transparent"
+          Canvas.ZIndex="0"/>
 
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" Margin="0,0,140,0" VerticalAlignment="Center">
-                <AutoSuggestBox QueryIcon="Find" 
-                                Width="250" 
-                                PlaceholderText="搜索 MineBBS..." 
-                                Style="{StaticResource DefaultAutoSuggestBoxStyle}"/>
+            <!-- 右侧控件区域 -->
+            <StackPanel Orientation="Horizontal" 
+                VerticalAlignment="Center" 
+                Spacing="8" 
+                Margin="0,0,185,0"
+                Canvas.ZIndex="1"
+                HorizontalAlignment="Right">
 
-                <Button Background="Transparent" Padding="4">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <PersonPicture Width="24" Height="24" DisplayName="User"/>
-                        <TextBlock Text="账户" VerticalAlignment="Center"/>
-                    </StackPanel>
+                <!-- 搜索框 - 宽屏显示 -->
+                <AutoSuggestBox x:Name="SearchBox"
+                        Width="350"
+                        Height="32"
+                        QueryIcon="Find"
+                        PlaceholderText="搜索 MineBBS..."
+                        QuerySubmitted="SearchBox_QuerySubmitted"
+                        Style="{StaticResource DefaultAutoSuggestBoxStyle}"/>
+
+                <Button x:Name="SearchIconButton"
+        Width="36"
+        Height="36"
+        Padding="0,0,0,0"
+        Background="Transparent"
+        BorderBrush="Transparent"
+        Visibility="Collapsed"
+        PointerEntered="SearchIconButton_PointerEntered"
+        PointerExited="SearchIconButton_PointerExited"
+        PointerPressed="SearchIconButton_PointerPressed"
+        PointerReleased="SearchIconButton_PointerReleased">
+
+                    <Button.Flyout>
+                        <Flyout x:Name="SearchFlyout" Placement="Bottom">
+                            <Flyout.FlyoutPresenterStyle>
+                                <Style TargetType="FlyoutPresenter">
+                                    <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="CornerRadius" Value="8"/>
+                                    <Setter Property="MinWidth" Value="350"/>
+                                    <Setter Property="MaxHeight" Value="32"/>
+                                </Style>
+                            </Flyout.FlyoutPresenterStyle>
+
+                            <AutoSuggestBox x:Name="FlyoutSearchBox"
+                            Width="350"
+                            QueryIcon="Find"
+                            PlaceholderText="搜索 MineBBS..."
+                            QuerySubmitted="FlyoutSearchBox_QuerySubmitted"
+                            Loaded="FlyoutSearchBox_Loaded"/>
+                        </Flyout>
+                    </Button.Flyout>
+
+                    <muxc:AnimatedIcon x:Name="SearchAnimatedIcon"
+                   Width="32"
+                   Height="32">
+                        <muxc:AnimatedIcon.Source>
+                            <animatedvisuals:AnimatedFindVisualSource/>
+                        </muxc:AnimatedIcon.Source>
+                    </muxc:AnimatedIcon>
+                </Button>
+
+                <!-- 头像按钮 -->
+                <Button x:Name="UserAvatarButton"
+                        Style="{StaticResource AvatarButtonStyle}"
+                        Width="32" 
+                        Height="32"
+                        Click="UserAvatarButton_Click">
+
+                    <muxc:PersonPicture x:Name="UserPicture" 
+                                        Width="32" 
+                                        Height="32" 
+                                        DisplayName="访客"/>
+
+                    <FlyoutBase.AttachedFlyout>
+                        <Flyout x:Name="UserFlyout" 
+            Placement="BottomEdgeAlignedRight"
+            Opened="UserFlyout_Opened">
+                            <Flyout.FlyoutPresenterStyle>
+                                <Style TargetType="FlyoutPresenter">
+                                    <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="MinWidth" Value="280"/>
+                                    <Setter Property="CornerRadius" Value="8"/>
+                                    <Setter Property="Background" Value="{ThemeResource FlyoutPresenterBackground}"/>
+                                </Style>
+                            </Flyout.FlyoutPresenterStyle>
+
+                            <StackPanel Width="280">
+                                <Grid x:Name="UserInfoHeader" 
+                                      Background="Transparent"
+                                      BorderBrush="Transparent"
+                                      Padding="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <muxc:PersonPicture x:Name="FlyoutUserPicture" 
+                                                        Width="48" 
+                                                        Height="48" 
+                                                        DisplayName="访客"
+                                                        VerticalAlignment="Center"/>
+
+                                    <StackPanel Grid.Column="1" 
+                                                Margin="8,0,0,0" 
+                                                VerticalAlignment="Center">
+                                        <TextBlock x:Name="FlyoutUserNameText" 
+                                                   Text="访客"
+                                                   FontSize="15"
+                                                   FontWeight="SemiBold"/>
+                                        <TextBlock x:Name="FlyoutUserEmailText" 
+                                                   Text="未登录"
+                                                   FontSize="12"
+                                                   Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                                                   Margin="4,8,0,0"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <StackPanel>
+                                    <MenuFlyoutSeparator x:Name="UserSeparator" Visibility="Collapsed" Margin="0,4"/>
+                                    <Button x:Name="LoginButton" 
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Left"
+                                            Background="Transparent"
+                                            BorderBrush="Transparent"
+                                            Click="LoginMenuItem_Click"
+                                            Padding="12,8">
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <FontIcon Glyph="&#xE77B;" FontSize="16"/>
+                                            <TextBlock Text="登录" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+
+                                    <Button x:Name="ProfileButton" 
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Left"
+                                            Background="Transparent"
+                                            BorderBrush="Transparent"
+                                            Click="ProfileMenuItem_Click"
+                                            Padding="12,8"
+                                            Visibility="Collapsed">
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <FontIcon Glyph="&#xE77B;" FontSize="16"/>
+                                            <TextBlock Text="个人资料" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+
+                                    <Button x:Name="MessagesButton" 
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Left"
+                                            Background="Transparent"
+                                            BorderBrush="Transparent"
+                                            Click="MessagesMenuItem_Click"
+                                            Padding="12,8"
+                                            Visibility="Collapsed">
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <FontIcon Glyph="&#xE715;" FontSize="16"/>
+                                            <TextBlock Text="私信" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+
+                                    <Button x:Name="NotificationsButton" 
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Left"
+                                            Background="Transparent"
+                                            BorderBrush="Transparent"
+                                            Click="NotificationsMenuItem_Click"
+                                            Padding="12,8"
+                                            Visibility="Collapsed">
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <FontIcon Glyph="&#xEA8F;" FontSize="16"/>
+                                            <TextBlock Text="通知" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+
+                                    <MenuFlyoutSeparator x:Name="CarouselSeparator" Visibility="Collapsed" Margin="0,4"/>
+
+                                    <Button x:Name="ApplyCarouselButton" 
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Left"
+                                            Background="Transparent"
+                                            BorderBrush="Transparent"
+                                            Click="ApplyCarouselButton_Click"
+                                            Padding="12,8"
+                                            Visibility="Collapsed">
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <FontIcon Glyph="&#xEADF;" FontSize="16"/>
+                                            <TextBlock Text="申请轮播图" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+
+                                    <MenuFlyoutSeparator x:Name="UserMenuSeparator" Visibility="Collapsed" Margin="0,4"/>
+
+                                    <Button x:Name="LogoutButton" 
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Left"
+                                            Background="Transparent"
+                                            BorderBrush="Transparent"
+                                            Click="LogoutMenuItem_Click"
+                                            Padding="12,8"
+                                            Visibility="Collapsed">
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <FontIcon Glyph="&#xF3B1;" FontSize="16"/>
+                                            <TextBlock Text="退出登录" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                            </StackPanel>
+                        </Flyout>
+                    </FlyoutBase.AttachedFlyout>
                 </Button>
             </StackPanel>
         </Grid>
 
-        <muxc:NavigationView x:Name="NavView" 
+        <!-- 导航和内容区域 -->
+        <muxc:NavigationView x:Name="NavView"
                              Grid.Row="1"
                              PaneDisplayMode="Top"
                              IsBackButtonVisible="Visible"
@@ -60,6 +314,7 @@
                 <muxc:NavigationViewItem Icon="Library" Content="资源" Tag="ResourcesPage" />
                 <muxc:NavigationViewItem Icon="Download" Content="MC下载(基岩)" Tag="DownloadPage" />
             </muxc:NavigationView.MenuItems>
+
             <muxc:NavigationView.FooterMenuItems>
                 <muxc:NavigationViewItem Icon="Manage" Content="MC管理(Java)" Tag="VersionManagerPage"/>
             </muxc:NavigationView.FooterMenuItems>
