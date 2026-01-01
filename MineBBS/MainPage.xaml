@@ -58,8 +58,11 @@
             <muxc:NavigationView.MenuItems>
                 <muxc:NavigationViewItem Icon="Home" Content="社区" Tag="HomePage" />
                 <muxc:NavigationViewItem Icon="Library" Content="资源" Tag="ResourcesPage" />
-                <muxc:NavigationViewItem Icon="Download" Content="MC下载" Tag="DownloadPage" />
+                <muxc:NavigationViewItem Icon="Download" Content="MC下载(基岩)" Tag="DownloadPage" />
             </muxc:NavigationView.MenuItems>
+            <muxc:NavigationView.FooterMenuItems>
+                <muxc:NavigationViewItem Icon="Manage" Content="MC管理(Java)" Tag="VersionManagerPage"/>
+            </muxc:NavigationView.FooterMenuItems>
 
             <Frame x:Name="ContentFrame" Navigated="ContentFrame_Navigated"/>
         </muxc:NavigationView>

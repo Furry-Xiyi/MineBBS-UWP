@@ -5,21 +5,23 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
-using Windows.ApplicationModel.Contacts;
 using Windows.UI;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Imaging;
 using Windows.UI.Xaml.Shapes;
 
 namespace MineBBS.Views
 {
-    public sealed partial class HomePage : Page
+    public sealed partial class HomePage : Page, MineBBS.Interfaces.ISearchable
     {
         private readonly HttpClient _httpClient = new HttpClient();
         private readonly CoreDispatcher _dispatcher;
+        private string _currentFormHash = ""; // 用于签到
+        private bool _isLoggedIn = false;
 
         public HomePage()
         {
@@ -35,6 +37,16 @@ namespace MineBBS.Views
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(30) };
             timer.Tick += async (s, e) => await LoadMineBBSDataAsync();
             timer.Start();
+        }
+
+        // 搜索方法 - 供MainPage调用
+        public void PerformSearch(string query)
+        {
+            if (string.IsNullOrWhiteSpace(query)) return;
+
+            // 跳转到搜索页面
+            var searchUrl = $"https://www.minebbs.com/search/?q={Uri.EscapeDataString(query)}";
+            Frame.Navigate(typeof(WebViewPage), Tuple.Create(searchUrl, "搜索"));
         }
 
         private async Task LoadMineBBSDataAsync()
@@ -62,27 +74,19 @@ namespace MineBBS.Views
                 var latestTopics = new List<TopicModel>();
                 var stats = new Dictionary<string, string>();
 
-                // 1. 解析公告
+                // 解析各种数据
                 ParseNotices(htmlDoc, notices);
-
-                // 2. 解析轮播图
                 ParseBanners(htmlDoc, banners);
-
-                // 3. 解析推荐内容
                 ParseFeaturedContent(htmlDoc, featuredContents);
-
-                // 4. 解析论坛板块分区
                 ParseForumCategories(htmlDoc, forumCategories);
-
-                // 5. 解析最新主题
                 ParseLatestTopics(htmlDoc, latestTopics);
-
-                // 6. 解析统计数据
                 ParseStatistics(htmlDoc, stats);
+
+                // 解析登录状态和签到信息
+                ParseLoginStatus(htmlDoc);
 
                 System.Diagnostics.Debug.WriteLine($"数据解析完成：轮播{banners.Count}, 公告{notices.Count}, 推荐{featuredContents.Count}, 分区{forumCategories.Count}, 最新{latestTopics.Count}");
 
-                // 7. 构建UI
                 await _dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
                 {
                     BuildUI(banners, notices, featuredContents, forumCategories, latestTopics, stats);
@@ -115,6 +119,57 @@ namespace MineBBS.Views
         {
             ContentPanel.Children.Clear();
 
+            // 用户登录/签到栏
+            var userPanel = new Grid
+            {
+                Background = new SolidColorBrush(Color.FromArgb(255, 43, 90, 60)),
+                Padding = new Thickness(16, 10, 16, 10)
+            };
+            userPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            userPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var userStack = new StackPanel { Orientation = Orientation.Horizontal };
+            userStack.Children.Add(new TextBlock
+            {
+                Text = _isLoggedIn ? "👤 已登录" : "👤 未登录",
+                Foreground = new SolidColorBrush(Colors.White),
+                FontSize = 14,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            Grid.SetColumn(userStack, 0);
+            userPanel.Children.Add(userStack);
+
+            var actionStack = new StackPanel { Orientation = Orientation.Horizontal };
+
+            if (!_isLoggedIn)
+            {
+                var loginButton = new Button
+                {
+                    Content = "登录",
+                    Background = new SolidColorBrush(Color.FromArgb(255, 60, 120, 80)),
+                    Foreground = new SolidColorBrush(Colors.White),
+                    Margin = new Thickness(0, 0, 8, 0)
+                };
+                loginButton.Click += (s, e) => Frame.Navigate(typeof(WebViewPage), Tuple.Create("https://www.minebbs.com/login/", "登录"));
+                actionStack.Children.Add(loginButton);
+            }
+            else
+            {
+                var signInButton = new Button
+                {
+                    Content = "每日签到",
+                    Background = new SolidColorBrush(Color.FromArgb(255, 255, 193, 7)),
+                    Foreground = new SolidColorBrush(Colors.Black),
+                    Margin = new Thickness(0, 0, 8, 0)
+                };
+                signInButton.Click += async (s, e) => await PerformDailySignIn();
+                actionStack.Children.Add(signInButton);
+            }
+
+            Grid.SetColumn(actionStack, 1);
+            userPanel.Children.Add(actionStack);
+            ContentPanel.Children.Add(userPanel);
+
             // 公告栏
             if (notices.Count > 0)
             {
@@ -133,14 +188,18 @@ namespace MineBBS.Views
                 });
                 foreach (var notice in notices)
                 {
-                    noticeStack.Children.Add(new TextBlock
+                    var noticeText = new TextBlock
                     {
                         Text = notice.Title,
                         FontSize = 13,
                         Foreground = new SolidColorBrush(Color.FromArgb(255, 133, 100, 4)),
                         Margin = new Thickness(0, 0, 16, 0),
                         TextTrimming = TextTrimming.CharacterEllipsis
-                    });
+                    };
+                    noticeText.Tapped += (s, e) => NavigateToUrl(notice.Link);
+                    noticeText.PointerEntered += (s, e) => Window.Current.CoreWindow.PointerCursor = new Windows.UI.Core.CoreCursor(Windows.UI.Core.CoreCursorType.Hand, 1);
+                    noticeText.PointerExited += (s, e) => Window.Current.CoreWindow.PointerCursor = new Windows.UI.Core.CoreCursor(Windows.UI.Core.CoreCursorType.Arrow, 1);
+                    noticeStack.Children.Add(noticeText);
                 }
                 noticeGrid.Children.Add(noticeStack);
                 ContentPanel.Children.Add(noticeGrid);
@@ -168,10 +227,10 @@ namespace MineBBS.Views
                         Source = new BitmapImage(new Uri(banner.ImageUrl)),
                         Stretch = Stretch.UniformToFill
                     };
+                    image.Tapped += (s, e) => NavigateToUrl(banner.Link ?? "https://www.minebbs.com/");
                     flipView.Items.Add(image);
                 }
 
-                // 指示器面板（叠加在 FlipView 内部底部居中）
                 var indicatorPanel = new StackPanel
                 {
                     Orientation = Orientation.Horizontal,
@@ -186,17 +245,15 @@ namespace MineBBS.Views
                     {
                         Width = 8,
                         Height = 8,
-                        Fill = (Brush)Application.Current.Resources["SystemControlForegroundBaseLowBrush"], // 默认灰色
+                        Fill = (Brush)Application.Current.Resources["SystemControlForegroundBaseLowBrush"],
                         Margin = new Thickness(4, 0, 4, 0)
                     };
                     indicatorPanel.Children.Add(dot);
                 }
 
-                // 初始默认第一个点高亮
                 ((Ellipse)indicatorPanel.Children[0]).Fill =
                     (Brush)Application.Current.Resources["SystemControlHighlightAccentBrush"];
 
-                // 绑定 FlipView.SelectionChanged 更新点颜色
                 flipView.SelectionChanged += (s, e) =>
                 {
                     for (int i = 0; i < indicatorPanel.Children.Count; i++)
@@ -204,13 +261,12 @@ namespace MineBBS.Views
                         var dot = (Ellipse)indicatorPanel.Children[i];
                         dot.Fill = (Brush)Application.Current.Resources[
                             i == flipView.SelectedIndex
-                            ? "SystemControlHighlightAccentBrush" // 高亮色
-                            : "SystemControlForegroundBaseLowBrush" // 灰色
+                            ? "SystemControlHighlightAccentBrush"
+                            : "SystemControlForegroundBaseLowBrush"
                         ];
                     }
                 };
 
-                // 自动轮播
                 var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
                 timer.Tick += (s, e) =>
                 {
@@ -222,14 +278,12 @@ namespace MineBBS.Views
                 };
                 timer.Start();
 
-                // 把 FlipView 和指示器叠加在同一个 Grid
                 flipViewGrid.Children.Add(flipView);
                 flipViewGrid.Children.Add(indicatorPanel);
-
                 ContentPanel.Children.Add(flipViewGrid);
             }
 
-            // 推荐内容
+            // 推荐内容 - 轮播样式（两两一组）
             if (featuredContents.Count > 0)
             {
                 ContentPanel.Children.Add(new TextBlock
@@ -240,71 +294,39 @@ namespace MineBBS.Views
                     Margin = new Thickness(12, 16, 12, 8)
                 });
 
-                foreach (var featured in featuredContents)
+                var featuredFlipView = new FlipView
                 {
-                    var grid = new Grid
-                    {
-                        Margin = new Thickness(12, 8, 12, 0),
-                        Padding = new Thickness(12),
-                        Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"]
-                    };
-                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(50) });
-                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    Height = 220,
+                    Margin = new Thickness(12, 0, 12, 0)
+                };
 
-                    var avatar = new Border
+                // 两两一组
+                for (int i = 0; i < featuredContents.Count; i += 2)
+                {
+                    var pairGrid = new Grid { Padding = new Thickness(8) };
+                    pairGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    if (i + 1 < featuredContents.Count)
                     {
-                        Width = 48,
-                        Height = 48,
-                        CornerRadius = new CornerRadius(24)
-                    };
-                    avatar.Child = new Image
-                    {
-                        Source = new BitmapImage(new Uri(featured.AuthorAvatar)),
-                        Stretch = Stretch.UniformToFill
-                    };
-                    Grid.SetColumn(avatar, 0);
-                    grid.Children.Add(avatar);
+                        pairGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    }
 
-                    var infoStack = new StackPanel { Margin = new Thickness(12, 0, 0, 0) };
-                    infoStack.Children.Add(new TextBlock
-                    {
-                        Text = featured.Title,
-                        FontWeight = Windows.UI.Text.FontWeights.SemiBold,
-                        FontSize = 15,
-                        TextWrapping = TextWrapping.Wrap,
-                        MaxLines = 2,
-                        TextTrimming = TextTrimming.CharacterEllipsis
-                    });
-                    infoStack.Children.Add(new TextBlock
-                    {
-                        Text = featured.Summary,
-                        FontSize = 12,
-                        Foreground = new SolidColorBrush(Colors.Gray),
-                        Margin = new Thickness(0, 4, 0, 0),
-                        MaxLines = 2,
-                        TextTrimming = TextTrimming.CharacterEllipsis
-                    });
-                    var metaStack = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
-                    metaStack.Children.Add(new TextBlock
-                    {
-                        Text = featured.AuthorName,
-                        FontSize = 11,
-                        Foreground = new SolidColorBrush(Color.FromArgb(255, 43, 90, 60))
-                    });
-                    metaStack.Children.Add(new TextBlock { Text = " · ", FontSize = 11, Foreground = new SolidColorBrush(Colors.Gray) });
-                    metaStack.Children.Add(new TextBlock
-                    {
-                        Text = featured.PublishTime,
-                        FontSize = 11,
-                        Foreground = new SolidColorBrush(Colors.Gray)
-                    });
-                    infoStack.Children.Add(metaStack);
+                    // 第一个
+                    var card1 = CreateFeaturedCard(featuredContents[i]);
+                    Grid.SetColumn(card1, 0);
+                    pairGrid.Children.Add(card1);
 
-                    Grid.SetColumn(infoStack, 1);
-                    grid.Children.Add(infoStack);
+                    // 第二个（如果有）
+                    if (i + 1 < featuredContents.Count)
+                    {
+                        var card2 = CreateFeaturedCard(featuredContents[i + 1]);
+                        Grid.SetColumn(card2, 1);
+                        pairGrid.Children.Add(card2);
+                    }
 
-                    ContentPanel.Children.Add(grid);
+                    featuredFlipView.Items.Add(pairGrid);
                 }
+
+                ContentPanel.Children.Add(featuredFlipView);
             }
 
             // 论坛板块分区
@@ -327,80 +349,7 @@ namespace MineBBS.Views
 
                 foreach (var forum in category.Forums)
                 {
-                    var forumGrid = new Grid
-                    {
-                        Padding = new Thickness(12),
-                        Margin = new Thickness(12, 4, 12, 0),
-                        Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"]
-                    };
-                    forumGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                    forumGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-                    var forumStack = new StackPanel();
-                    forumStack.Children.Add(new TextBlock
-                    {
-                        Text = forum.ForumName,
-                        FontWeight = Windows.UI.Text.FontWeights.SemiBold,
-                        FontSize = 15
-                    });
-                    forumStack.Children.Add(new TextBlock
-                    {
-                        Text = forum.ForumDesc,
-                        FontSize = 12,
-                        Foreground = new SolidColorBrush(Colors.Gray),
-                        Margin = new Thickness(0, 4, 0, 0),
-                        MaxLines = 2,
-                        TextTrimming = TextTrimming.CharacterEllipsis
-                    });
-                    var statsStack = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
-                    statsStack.Children.Add(new TextBlock { Text = "💬 ", FontSize = 11 });
-                    statsStack.Children.Add(new TextBlock
-                    {
-                        Text = forum.TopicCount.ToString(),
-                        FontSize = 11,
-                        Foreground = new SolidColorBrush(Color.FromArgb(255, 43, 90, 60))
-                    });
-                    statsStack.Children.Add(new TextBlock { Text = " 主题", FontSize = 11, Foreground = new SolidColorBrush(Colors.Gray), Margin = new Thickness(2, 0, 12, 0) });
-                    statsStack.Children.Add(new TextBlock { Text = "📝 ", FontSize = 11 });
-                    statsStack.Children.Add(new TextBlock
-                    {
-                        Text = forum.MsgCount.ToString(),
-                        FontSize = 11,
-                        Foreground = new SolidColorBrush(Color.FromArgb(255, 43, 90, 60))
-                    });
-                    statsStack.Children.Add(new TextBlock { Text = " 消息", FontSize = 11, Foreground = new SolidColorBrush(Colors.Gray), Margin = new Thickness(2, 0, 0, 0) });
-                    forumStack.Children.Add(statsStack);
-
-                    Grid.SetColumn(forumStack, 0);
-                    forumGrid.Children.Add(forumStack);
-
-                    if (!string.IsNullOrEmpty(forum.LatestTopicTitle))
-                    {
-                        var latestStack = new StackPanel
-                        {
-                            Margin = new Thickness(12, 0, 0, 0),
-                            MaxWidth = 150,
-                            VerticalAlignment = VerticalAlignment.Center
-                        };
-                        latestStack.Children.Add(new TextBlock
-                        {
-                            Text = "最新：",
-                            FontSize = 10,
-                            Foreground = new SolidColorBrush(Colors.Gray)
-                        });
-                        latestStack.Children.Add(new TextBlock
-                        {
-                            Text = forum.LatestTopicTitle,
-                            FontSize = 11,
-                            TextWrapping = TextWrapping.Wrap,
-                            MaxLines = 2,
-                            TextTrimming = TextTrimming.CharacterEllipsis,
-                            Margin = new Thickness(0, 2, 0, 0)
-                        });
-                        Grid.SetColumn(latestStack, 1);
-                        forumGrid.Children.Add(latestStack);
-                    }
-
+                    var forumGrid = CreateForumCard(forum);
                     ContentPanel.Children.Add(forumGrid);
                 }
             }
@@ -418,39 +367,8 @@ namespace MineBBS.Views
 
                 foreach (var topic in latestTopics)
                 {
-                    var topicGrid = new Grid
-                    {
-                        Padding = new Thickness(12, 10, 12, 10),
-                        Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
-                        Margin = new Thickness(12, 4, 12, 0)
-                    };
-                    var topicStack = new StackPanel();
-                    topicStack.Children.Add(new TextBlock
-                    {
-                        Text = topic.Title,
-                        FontWeight = Windows.UI.Text.FontWeights.Medium,
-                        FontSize = 14,
-                        TextWrapping = TextWrapping.Wrap,
-                        MaxLines = 2,
-                        TextTrimming = TextTrimming.CharacterEllipsis
-                    });
-                    var metaStack = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
-                    metaStack.Children.Add(new TextBlock
-                    {
-                        Text = topic.AuthorName,
-                        FontSize = 11,
-                        Foreground = new SolidColorBrush(Color.FromArgb(255, 43, 90, 60))
-                    });
-                    metaStack.Children.Add(new TextBlock { Text = " · ", FontSize = 11, Foreground = new SolidColorBrush(Colors.Gray) });
-                    metaStack.Children.Add(new TextBlock { Text = topic.PublishTime, FontSize = 11, Foreground = new SolidColorBrush(Colors.Gray) });
-                    metaStack.Children.Add(new TextBlock { Text = " · ", FontSize = 11, Foreground = new SolidColorBrush(Colors.Gray), Margin = new Thickness(8, 0, 0, 0) });
-                    metaStack.Children.Add(new TextBlock { Text = "💬 ", FontSize = 11 });
-                    metaStack.Children.Add(new TextBlock { Text = topic.ReplyCount.ToString(), FontSize = 11, Foreground = new SolidColorBrush(Colors.Gray) });
-                    metaStack.Children.Add(new TextBlock { Text = " · 👁 ", FontSize = 11, Margin = new Thickness(8, 0, 0, 0) });
-                    metaStack.Children.Add(new TextBlock { Text = topic.ViewCount.ToString(), FontSize = 11, Foreground = new SolidColorBrush(Colors.Gray) });
-                    topicStack.Children.Add(metaStack);
-                    topicGrid.Children.Add(topicStack);
-                    ContentPanel.Children.Add(topicGrid);
+                    var topicCard = CreateTopicCard(topic);
+                    ContentPanel.Children.Add(topicCard);
                 }
             }
 
@@ -522,6 +440,256 @@ namespace MineBBS.Views
             ContentPanel.Children.Add(footerStack);
         }
 
+        private Grid CreateFeaturedCard(FeaturedModel featured)
+        {
+            var card = new Grid
+            {
+                Margin = new Thickness(4),
+                Padding = new Thickness(12),
+                Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+                CornerRadius = new CornerRadius(8)
+            };
+            card.Tapped += (s, e) => NavigateToUrl(featured.Link ?? "https://www.minebbs.com/");
+            card.PointerEntered += (s, e) =>
+            {
+                card.Background = new SolidColorBrush(Color.FromArgb(255, 240, 240, 240));
+                Window.Current.CoreWindow.PointerCursor = new Windows.UI.Core.CoreCursor(Windows.UI.Core.CoreCursorType.Hand, 1);
+            };
+            card.PointerExited += (s, e) =>
+            {
+                card.Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"];
+                Window.Current.CoreWindow.PointerCursor = new Windows.UI.Core.CoreCursor(Windows.UI.Core.CoreCursorType.Arrow, 1);
+            };
+
+            var stack = new StackPanel();
+
+            var titleBlock = new TextBlock
+            {
+                Text = featured.Title,
+                FontWeight = Windows.UI.Text.FontWeights.SemiBold,
+                FontSize = 14,
+                TextWrapping = TextWrapping.Wrap,
+                MaxLines = 2,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            stack.Children.Add(titleBlock);
+
+            var summaryBlock = new TextBlock
+            {
+                Text = featured.Summary,
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Colors.Gray),
+                Margin = new Thickness(0, 4, 0, 0),
+                MaxLines = 2,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            stack.Children.Add(summaryBlock);
+
+            var metaStack = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+            var avatar = new Ellipse
+            {
+                Width = 20,
+                Height = 20,
+                Fill = new ImageBrush { ImageSource = new BitmapImage(new Uri(featured.AuthorAvatar)) }
+            };
+            metaStack.Children.Add(avatar);
+            metaStack.Children.Add(new TextBlock
+            {
+                Text = " " + featured.AuthorName,
+                FontSize = 10,
+                Foreground = new SolidColorBrush(Color.FromArgb(255, 43, 90, 60)),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            stack.Children.Add(metaStack);
+
+            card.Children.Add(stack);
+            return card;
+        }
+
+        private Grid CreateForumCard(ForumModel forum)
+        {
+            var forumGrid = new Grid
+            {
+                Padding = new Thickness(12),
+                Margin = new Thickness(12, 4, 12, 0),
+                Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"]
+            };
+            forumGrid.Tapped += (s, e) => NavigateToUrl(forum.Link ?? "https://www.minebbs.com/");
+            forumGrid.PointerEntered += (s, e) =>
+            {
+                forumGrid.Background = new SolidColorBrush(Color.FromArgb(255, 240, 240, 240));
+                Window.Current.CoreWindow.PointerCursor = new Windows.UI.Core.CoreCursor(Windows.UI.Core.CoreCursorType.Hand, 1);
+            };
+            forumGrid.PointerExited += (s, e) =>
+            {
+                forumGrid.Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"];
+                Window.Current.CoreWindow.PointerCursor = new Windows.UI.Core.CoreCursor(Windows.UI.Core.CoreCursorType.Arrow, 1);
+            };
+
+            forumGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            forumGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var forumStack = new StackPanel();
+            forumStack.Children.Add(new TextBlock
+            {
+                Text = forum.ForumName,
+                FontWeight = Windows.UI.Text.FontWeights.SemiBold,
+                FontSize = 15
+            });
+            forumStack.Children.Add(new TextBlock
+            {
+                Text = forum.ForumDesc,
+                FontSize = 12,
+                Foreground = new SolidColorBrush(Colors.Gray),
+                Margin = new Thickness(0, 4, 0, 0),
+                MaxLines = 2,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            var statsStack = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+            statsStack.Children.Add(new TextBlock { Text = "💬 ", FontSize = 11 });
+            statsStack.Children.Add(new TextBlock
+            {
+                Text = forum.TopicCount.ToString(),
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromArgb(255, 43, 90, 60))
+            });
+            statsStack.Children.Add(new TextBlock { Text = " 主题 · 📝 ", FontSize = 11, Foreground = new SolidColorBrush(Colors.Gray), Margin = new Thickness(2, 0, 2, 0) });
+            statsStack.Children.Add(new TextBlock
+            {
+                Text = forum.MsgCount.ToString(),
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromArgb(255, 43, 90, 60))
+            });
+            statsStack.Children.Add(new TextBlock { Text = " 消息", FontSize = 11, Foreground = new SolidColorBrush(Colors.Gray), Margin = new Thickness(2, 0, 0, 0) });
+            forumStack.Children.Add(statsStack);
+
+            Grid.SetColumn(forumStack, 0);
+            forumGrid.Children.Add(forumStack);
+
+            if (!string.IsNullOrEmpty(forum.LatestTopicTitle))
+            {
+                var latestStack = new StackPanel
+                {
+                    Margin = new Thickness(12, 0, 0, 0),
+                    MaxWidth = 150,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                latestStack.Children.Add(new TextBlock
+                {
+                    Text = "最新：",
+                    FontSize = 10,
+                    Foreground = new SolidColorBrush(Colors.Gray)
+                });
+                latestStack.Children.Add(new TextBlock
+                {
+                    Text = forum.LatestTopicTitle,
+                    FontSize = 11,
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxLines = 2,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    Margin = new Thickness(0, 2, 0, 0)
+                });
+                Grid.SetColumn(latestStack, 1);
+                forumGrid.Children.Add(latestStack);
+            }
+
+            return forumGrid;
+        }
+
+        private Grid CreateTopicCard(TopicModel topic)
+        {
+            var topicGrid = new Grid
+            {
+                Padding = new Thickness(12, 10, 12, 10),
+                Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+                Margin = new Thickness(12, 4, 12, 0)
+            };
+            topicGrid.Tapped += (s, e) => NavigateToUrl(topic.Link ?? "https://www.minebbs.com/");
+            topicGrid.PointerEntered += (s, e) =>
+            {
+                topicGrid.Background = new SolidColorBrush(Color.FromArgb(255, 240, 240, 240));
+                Window.Current.CoreWindow.PointerCursor = new Windows.UI.Core.CoreCursor(Windows.UI.Core.CoreCursorType.Hand, 1);
+            };
+            topicGrid.PointerExited += (s, e) =>
+            {
+                topicGrid.Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"];
+                Window.Current.CoreWindow.PointerCursor = new Windows.UI.Core.CoreCursor(Windows.UI.Core.CoreCursorType.Arrow, 1);
+            };
+
+            var topicStack = new StackPanel();
+            topicStack.Children.Add(new TextBlock
+            {
+                Text = topic.Title,
+                FontWeight = Windows.UI.Text.FontWeights.Medium,
+                FontSize = 14,
+                TextWrapping = TextWrapping.Wrap,
+                MaxLines = 2,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            var metaStack = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+            metaStack.Children.Add(new TextBlock
+            {
+                Text = topic.AuthorName,
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromArgb(255, 43, 90, 60))
+            });
+            metaStack.Children.Add(new TextBlock { Text = " · " + topic.PublishTime + " · 💬 " + topic.ReplyCount + " · 👁 " + topic.ViewCount, FontSize = 11, Foreground = new SolidColorBrush(Colors.Gray) });
+            topicStack.Children.Add(metaStack);
+            topicGrid.Children.Add(topicStack);
+            return topicGrid;
+        }
+
+        private void NavigateToUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return;
+
+            // 处理相对URL
+            if (!url.StartsWith("http"))
+            {
+                url = "https://www.minebbs.com" + (url.StartsWith("/") ? url : "/" + url);
+            }
+
+            Frame.Navigate(typeof(WebViewPage), Tuple.Create(url, "详情"));
+        }
+
+        private async Task PerformDailySignIn()
+        {
+            try
+            {
+                // 这里需要实现签到逻辑
+                // 由于签到需要登录态和formhash，建议通过WebView完成
+                Frame.Navigate(typeof(WebViewPage), Tuple.Create("https://www.minebbs.com/plugin.php?id=dc_signin", "签到"));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"签到失败：{ex.Message}");
+            }
+        }
+
+        private void ParseLoginStatus(HtmlDocument htmlDoc)
+        {
+            try
+            {
+                // 检查是否登录（通过查找用户信息节点）
+                var userNode = htmlDoc.DocumentNode.SelectSingleNode("//a[contains(@class, 'p-navgroup-link--user')]");
+                _isLoggedIn = userNode != null;
+
+                // 获取formhash（用于签到等操作）
+                var formHashNode = htmlDoc.DocumentNode.SelectSingleNode("//input[@name='formhash']");
+                if (formHashNode != null)
+                {
+                    _currentFormHash = formHashNode.GetAttributeValue("value", "");
+                }
+
+                System.Diagnostics.Debug.WriteLine($"登录状态：{_isLoggedIn}, FormHash: {_currentFormHash}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"解析登录状态失败：{ex.Message}");
+            }
+        }
+
+        // 以下是原有的解析方法（保持不变，但需要添加Link字段的提取）
         private void ParseNotices(HtmlDocument htmlDoc, List<NoticeModel> notices)
         {
             try
@@ -553,17 +721,25 @@ namespace MineBBS.Views
         {
             try
             {
-                var bannerNodes = htmlDoc.DocumentNode.SelectNodes("//div[@data-widget-key='forum_slide']//div[contains(@class, 'swiper-slide')]//img[not(contains(@src, 'apply_button'))]");
+                var bannerNodes = htmlDoc.DocumentNode.SelectNodes("//div[@data-widget-key='forum_slide']//div[contains(@class, 'swiper-slide')]//a");
                 if (bannerNodes != null)
                 {
                     foreach (var node in bannerNodes)
                     {
-                        var imgUrl = node.GetAttributeValue("src", "");
-                        if (!string.IsNullOrEmpty(imgUrl))
+                        var imgNode = node.SelectSingleNode(".//img[not(contains(@src, 'apply_button'))]");
+                        if (imgNode != null)
                         {
-                            if (imgUrl.StartsWith("/"))
-                                imgUrl = "https://www.minebbs.com" + imgUrl;
-                            banners.Add(new BannerModel { ImageUrl = imgUrl });
+                            var imgUrl = imgNode.GetAttributeValue("src", "");
+                            if (!string.IsNullOrEmpty(imgUrl))
+                            {
+                                if (imgUrl.StartsWith("/"))
+                                    imgUrl = "https://www.minebbs.com" + imgUrl;
+                                banners.Add(new BannerModel
+                                {
+                                    ImageUrl = imgUrl,
+                                    Link = node.GetAttributeValue("href", "")
+                                });
+                            }
                         }
                     }
                 }
@@ -597,7 +773,8 @@ namespace MineBBS.Views
                                 AuthorName = authorNode.InnerText.Trim(),
                                 PublishTime = timeNode?.GetAttributeValue("data-date", timeNode?.InnerText.Trim() ?? ""),
                                 Summary = summaryNode?.InnerText.Trim() ?? "",
-                                AuthorAvatar = avatarNode?.GetAttributeValue("src", "") ?? "https://www.minebbs.com/data/avatars/default/0.png"
+                                AuthorAvatar = avatarNode?.GetAttributeValue("src", "") ?? "https://www.minebbs.com/data/avatars/default/0.png",
+                                Link = titleNode.GetAttributeValue("href", "")
                             };
 
                             if (!string.IsNullOrEmpty(featured.AuthorAvatar) && featured.AuthorAvatar.StartsWith("/"))
@@ -651,7 +828,8 @@ namespace MineBBS.Views
                                         ForumDesc = descNode?.InnerText.Trim() ?? "",
                                         TopicCount = ParseKNumber(topicCountNode?.InnerText.Trim() ?? "0"),
                                         MsgCount = ParseKNumber(msgCountNode?.InnerText.Trim() ?? "0"),
-                                        LatestTopicTitle = latestTopicNode?.InnerText.Trim() ?? ""
+                                        LatestTopicTitle = latestTopicNode?.InnerText.Trim() ?? "",
+                                        Link = nameNode.GetAttributeValue("href", "")
                                     };
 
                                     category.Forums.Add(forum);
@@ -695,7 +873,8 @@ namespace MineBBS.Views
                                 AuthorName = authorNode?.InnerText.Trim() ?? "",
                                 PublishTime = timeNode?.GetAttributeValue("data-date", timeNode?.InnerText.Trim() ?? ""),
                                 ReplyCount = int.TryParse(replyCountNode?.InnerText.Trim(), out var r) ? r : 0,
-                                ViewCount = int.TryParse(viewCountNode?.InnerText.Trim(), out var v) ? v : 0
+                                ViewCount = int.TryParse(viewCountNode?.InnerText.Trim(), out var v) ? v : 0,
+                                Link = titleNode.GetAttributeValue("href", "")
                             };
 
                             latestTopics.Add(topic);
