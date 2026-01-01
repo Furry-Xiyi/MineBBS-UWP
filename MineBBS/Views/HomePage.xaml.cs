@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Text;
 using System.Threading.Tasks;
 using Windows.UI;
 using Windows.UI.Core;
@@ -13,6 +14,7 @@ using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Imaging;
 using Windows.UI.Xaml.Shapes;
+using Newtonsoft.Json.Linq;
 
 namespace MineBBS.Views
 {
@@ -20,8 +22,12 @@ namespace MineBBS.Views
     {
         private readonly HttpClient _httpClient = new HttpClient();
         private readonly CoreDispatcher _dispatcher;
-        private string _currentFormHash = ""; // 用于签到
+        private string _currentFormHash = "";
         private bool _isLoggedIn = false;
+
+        // 认证信息
+        private string _cookies = "";
+        private string _xfToken = "";
 
         public HomePage()
         {
@@ -32,11 +38,34 @@ namespace MineBBS.Views
             _httpClient.DefaultRequestHeaders.UserAgent.TryParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             _httpClient.DefaultRequestHeaders.Accept.TryParseAdd("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
 
+            // 监听登录状态变化
+            //AuthManager.LoginStatusChanged += OnLoginStatusChanged;
+
+            // 加载认证信息
+            //LoadAuthInfo();
+
             Loaded += async (s, e) => await LoadMineBBSDataAsync();
 
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(30) };
             timer.Tick += async (s, e) => await LoadMineBBSDataAsync();
             timer.Start();
+        }
+
+        //private void LoadAuthInfo()
+        //{
+           // _cookies = AuthManager.Cookies;
+           // _xfToken = AuthManager.XfToken;
+          //  _isLoggedIn = AuthManager.IsLoggedIn;
+         //   System.Diagnostics.Debug.WriteLine($"HomePage加载认证信息: IsLoggedIn={_isLoggedIn}");
+        //}
+
+        private async void OnLoginStatusChanged(object sender, bool isLoggedIn)
+        {
+            await _dispatcher.RunAsync(CoreDispatcherPriority.Normal, async () =>
+            {
+               // LoadAuthInfo();
+                await LoadMineBBSDataAsync(); // 重新加载页面
+            });
         }
 
         // 搜索方法 - 供MainPage调用
@@ -150,7 +179,7 @@ namespace MineBBS.Views
                     Foreground = new SolidColorBrush(Colors.White),
                     Margin = new Thickness(0, 0, 8, 0)
                 };
-                loginButton.Click += (s, e) => Frame.Navigate(typeof(WebViewPage), Tuple.Create("https://www.minebbs.com/login/", "登录"));
+                //loginButton.Click += (s, e) => Frame.Navigate(typeof(LoginPage));
                 actionStack.Children.Add(loginButton);
             }
             else
@@ -164,6 +193,16 @@ namespace MineBBS.Views
                 };
                 signInButton.Click += async (s, e) => await PerformDailySignIn();
                 actionStack.Children.Add(signInButton);
+
+                // 添加登出按钮
+                var logoutButton = new Button
+                {
+                    Content = "登出",
+                    Background = new SolidColorBrush(Colors.Gray),
+                    Foreground = new SolidColorBrush(Colors.White)
+                };
+                logoutButton.Click += async (s, e) => await LogoutAsync();
+                actionStack.Children.Add(logoutButton);
             }
 
             Grid.SetColumn(actionStack, 1);
@@ -639,6 +678,7 @@ namespace MineBBS.Views
             return topicGrid;
         }
 
+        // 🔥 关键方法：根据URL类型决定跳转到DetailPage还是WebViewPage
         private void NavigateToUrl(string url)
         {
             if (string.IsNullOrWhiteSpace(url)) return;
@@ -649,15 +689,27 @@ namespace MineBBS.Views
                 url = "https://www.minebbs.com" + (url.StartsWith("/") ? url : "/" + url);
             }
 
-            Frame.Navigate(typeof(WebViewPage), Tuple.Create(url, "详情"));
+            System.Diagnostics.Debug.WriteLine($"NavigateToUrl: {url}");
+
+            // 🎯 判断是否是资源或主题详情页
+            if (url.Contains("/resources/") || url.Contains("/threads/"))
+            {
+                // 跳转到DetailPage并传递认证信息
+                System.Diagnostics.Debug.WriteLine($"跳转到DetailPage，认证状态: {_isLoggedIn}");
+                Frame.Navigate(typeof(DetailPage), Tuple.Create(url, "详情", _cookies, _xfToken));
+            }
+            else
+            {
+                // 其他页面使用WebViewPage
+                System.Diagnostics.Debug.WriteLine("跳转到WebViewPage");
+                Frame.Navigate(typeof(WebViewPage), Tuple.Create(url, "详情"));
+            }
         }
 
         private async Task PerformDailySignIn()
         {
             try
             {
-                // 这里需要实现签到逻辑
-                // 由于签到需要登录态和formhash，建议通过WebView完成
                 Frame.Navigate(typeof(WebViewPage), Tuple.Create("https://www.minebbs.com/plugin.php?id=dc_signin", "签到"));
             }
             catch (Exception ex)
@@ -666,15 +718,44 @@ namespace MineBBS.Views
             }
         }
 
+        private async Task LogoutAsync()
+        {
+            try
+            {
+                var request = new HttpRequestMessage(HttpMethod.Post, "https://mbapi.xyqaq.cn/api/auth/logout");
+                request.Headers.Add("X-Cookies", _cookies);
+                request.Headers.Add("X-XF-Token", _xfToken);
+
+                var response = await _httpClient.SendAsync(request);
+                var resultText = await response.Content.ReadAsStringAsync();
+                var result = JObject.Parse(resultText);
+
+                if (result["success"]?.Value<bool>() == true)
+                {
+                    // 清除认证信息
+                    //AuthManager.ClearAuth();
+                    System.Diagnostics.Debug.WriteLine("登出成功");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("登出失败：" + (result["error"]?.ToString() ?? "未知错误"));
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"登出失败：{ex.Message}");
+                // 即使API调用失败，也清除本地认证信息
+                //AuthManager.ClearAuth();
+            }
+        }
+
         private void ParseLoginStatus(HtmlDocument htmlDoc)
         {
             try
             {
-                // 检查是否登录（通过查找用户信息节点）
                 var userNode = htmlDoc.DocumentNode.SelectSingleNode("//a[contains(@class, 'p-navgroup-link--user')]");
                 _isLoggedIn = userNode != null;
 
-                // 获取formhash（用于签到等操作）
                 var formHashNode = htmlDoc.DocumentNode.SelectSingleNode("//input[@name='formhash']");
                 if (formHashNode != null)
                 {
@@ -689,7 +770,6 @@ namespace MineBBS.Views
             }
         }
 
-        // 以下是原有的解析方法（保持不变，但需要添加Link字段的提取）
         private void ParseNotices(HtmlDocument htmlDoc, List<NoticeModel> notices)
         {
             try
